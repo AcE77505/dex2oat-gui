@@ -60,8 +60,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectedPackage = item) }
     }
 
-    fun updateCompileOptions(update: (CompileOptions) -> CompileOptions) {
-        _uiState.update { it.copy(compileOptions = update(it.compileOptions)) }
+    fun updateCompileOptions(options: CompileOptions) {
+        _uiState.update { it.copy(compileOptions = options) }
     }
 
     fun setOutputLocation(location: OutputLocation) {

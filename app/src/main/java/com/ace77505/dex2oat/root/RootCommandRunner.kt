@@ -24,7 +24,7 @@ class RootCommandRunner {
     }
 
     suspend fun run(commands: List<String>): CommandResult = withContext(Dispatchers.IO) {
-        val result = Shell.cmd(commands).exec()
+        val result = Shell.cmd(*commands.toTypedArray()).exec()
         CommandResult(result.code, result.out, result.err)
     }
 }
