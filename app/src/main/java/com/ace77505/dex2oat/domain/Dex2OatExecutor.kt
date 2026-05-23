@@ -90,7 +90,7 @@ class Dex2OatExecutor(
         }
         if (options.doDumpOnly) {
             val dumpFile = outputManager.createDumpFile()
-            if (!dumpOat(packagePaths.odex, dumpFile.absolutePath, log)) {
+            if (!dumpOat(packagePaths.baseApk.odex, dumpFile.absolutePath, log)) {
                 writeLog(logFile, logBuffer, outputLocation)
                 return@withContext ExecutionResult(false, "dump 失败")
             }
@@ -224,7 +224,7 @@ class Dex2OatExecutor(
     ): ExecutionResult {
         val env = resolveEnvironment(packagePaths, options, log) ?: return ExecutionResult(false, "环境检查失败")
         val tempDump = File(context.cacheDir, "oatdump_tmp.txt")
-        if (!dumpOat(packagePaths.odex, tempDump.absolutePath, log)) {
+        if (!dumpOat(packagePaths.baseApk.odex, tempDump.absolutePath, log)) {
             return ExecutionResult(false, "dump 失败，无法继续编译")
         }
         val dumpContent = tempDump.readText()
@@ -242,24 +242,28 @@ class Dex2OatExecutor(
             }
             compileFilter = "speed-profile"
         }
-        val compileCommands = buildDex2OatCommands(
-            dex2OatCommand,
-            packageName,
-            packagePaths,
-            env.copy(
-                classLoaderContext = classLoaderContext,
-                targetSdkVersion = targetSdkVersion,
-                comments = comments
-            ),
-            options.copy(compileFilter = compileFilter)
-        )
+        val compileTargets = listOf(packagePaths.baseApk) + packagePaths.splitApks
         removeOutputFiles(packagePaths, log)
-        for (command in compileCommands) {
-            log(LogType.Command, command)
-            val result = commandRunner.run(command)
-            if (!result.isSuccess) {
-                log(LogType.Error, result.output)
-                return ExecutionResult(false, "dex2oat 编译失败")
+        for (apkPaths in compileTargets) {
+            val compileCommands = buildDex2OatCommands(
+                dex2OatCommand,
+                packageName,
+                apkPaths,
+                packagePaths,
+                env.copy(
+                    classLoaderContext = classLoaderContext,
+                    targetSdkVersion = targetSdkVersion,
+                    comments = comments
+                ),
+                options.copy(compileFilter = compileFilter)
+            )
+            for (command in compileCommands) {
+                log(LogType.Command, command)
+                val result = commandRunner.run(command)
+                if (!result.isSuccess) {
+                    log(LogType.Error, result.output)
+                    return ExecutionResult(false, "dex2oat 编译失败")
+                }
             }
         }
         setOutputPermissions(packagePaths, log)
@@ -268,24 +272,27 @@ class Dex2OatExecutor(
                 if (!copyProfileForForce(packageName, log)) {
                     return ExecutionResult(false, "强制 profile 复制失败")
                 }
-                val retryCommands = buildDex2OatCommands(
-                    dex2OatCommand,
-                    packageName,
-                    packagePaths,
-                    env.copy(
-                        classLoaderContext = classLoaderContext,
-                        targetSdkVersion = targetSdkVersion,
-                        comments = comments
-                    ),
-                    options
-                )
                 removeOutputFiles(packagePaths, log)
-                for (command in retryCommands) {
-                    log(LogType.Command, command)
-                    val result = commandRunner.run(command)
-                    if (!result.isSuccess) {
-                        log(LogType.Error, result.output)
-                        return ExecutionResult(false, "强制重编译失败")
+                for (apkPaths in compileTargets) {
+                    val retryCommands = buildDex2OatCommands(
+                        dex2OatCommand,
+                        packageName,
+                        apkPaths,
+                        packagePaths,
+                        env.copy(
+                            classLoaderContext = classLoaderContext,
+                            targetSdkVersion = targetSdkVersion,
+                            comments = comments
+                        ),
+                        options
+                    )
+                    for (command in retryCommands) {
+                        log(LogType.Command, command)
+                        val result = commandRunner.run(command)
+                        if (!result.isSuccess) {
+                            log(LogType.Error, result.output)
+                            return ExecutionResult(false, "强制重编译失败")
+                        }
                     }
                 }
                 setOutputPermissions(packagePaths, log)
@@ -406,6 +413,7 @@ class Dex2OatExecutor(
             return null
         }
         val baseApk = baseApkPaths.firstOrNull() ?: paths.first()
+        val splitApks = paths.filter { it != baseApk }
         val isUserPackage = baseApk.startsWith("/data/app/")
         val isSystemPackage = !isUserPackage
         return if (isUserPackage) {
@@ -427,66 +435,27 @@ class Dex2OatExecutor(
             } else {
                 getProp("dalvik.vm.isa.arm.variant")
             }
-            val odex = "$cmdPath/${if (armCode == "two") "arm64" else armCode}/base.odex"
-            val vdex = "$cmdPath/${if (armCode == "two") "arm64" else armCode}/base.vdex"
-            val art = "$cmdPath/${if (armCode == "two") "arm64" else armCode}/base.art"
+            val apkEntries = buildApkEntries(
+                listOf(baseApk) + splitApks,
+                cmdPath,
+                armCode
+            )
             PackagePaths(
                 isSystemPackage = false,
                 isAab = isAab,
-                dex = "$baseDir/base.apk",
-                path = baseDir,
                 cmdPath = cmdPath,
-                odex = odex,
-                vdex = vdex,
-                art = art,
+                baseApk = apkEntries.first(),
+                splitApks = apkEntries.drop(1),
                 armCode = armCode,
                 cpuCode = cpuCode.ifBlank { "generic" }
             )
         } else {
-            val sysApkName = baseApk.substringAfterLast("/")
-            val baseDirName = baseApk.substringBeforeLast("/").substringAfterLast("/")
-            val preferredDex = commandRunner.run(
-                "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$sysApkName@classes.dex\""
-            ).stdout
-            val preferredVdex = commandRunner.run(
-                "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$sysApkName@classes.vdex\""
-            ).stdout
-            if (preferredDex.size > 1 || preferredVdex.size > 1) {
-                log(
-                    LogType.Info,
-                    "dalvik-cache 匹配到多个候选，dex=${preferredDex.joinToString()}, vdex=${preferredVdex.joinToString()}"
-                )
-            }
-            var odex = preferredDex.firstOrNull().orEmpty()
-            var vdex = preferredVdex.firstOrNull().orEmpty()
-            if (odex.isBlank() && vdex.isBlank()) {
-                odex = commandRunner.run(
-                    "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.dex\""
-                ).stdout.firstOrNull().orEmpty()
-                vdex = commandRunner.run(
-                    "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.vdex\""
-                ).stdout.firstOrNull().orEmpty()
-            }
-            if (odex.isBlank() && vdex.isBlank()) {
-                val sysOdexName = sysApkName.replace(".apk", ".odex")
-                val candidate64 = "${baseApk.substringBeforeLast("/")}/oat/arm64/$sysOdexName"
-                val candidate32 = "${baseApk.substringBeforeLast("/")}/oat/arm/$sysOdexName"
-                if (fileExists(candidate64)) {
-                    odex = candidate64
-                    vdex = candidate64.replace(".odex", ".vdex")
-                } else if (fileExists(candidate32)) {
-                    odex = candidate32
-                    vdex = candidate32.replace(".odex", ".vdex")
-                } else {
-                    log(LogType.Error, "系统软件 odex/vdex 未找到")
-                    return null
-                }
-            }
-            val art = odex.replace("classes.dex", "classes.art")
+            val baseEntry = resolveSystemApkEntry(baseApk, true, log) ?: return null
+            val splitEntries = splitApks.mapNotNull { resolveSystemApkEntry(it, false, log) }
             val armCode = when {
-                odex.contains("cache/arm64/") && odex.contains("cache/arm/") -> "two"
-                odex.contains("cache/arm64/") -> "arm64"
-                odex.contains("cache/arm/") -> "arm"
+                baseEntry.odex.contains("cache/arm64/") && baseEntry.odex.contains("cache/arm/") -> "two"
+                baseEntry.odex.contains("cache/arm64/") -> "arm64"
+                baseEntry.odex.contains("cache/arm/") -> "arm"
                 else -> ""
             }
             val cpuCode = if (armCode == "arm64") {
@@ -497,16 +466,98 @@ class Dex2OatExecutor(
             PackagePaths(
                 isSystemPackage = true,
                 isAab = isAab,
-                dex = baseApk,
-                path = baseApk.substringBeforeLast("/"),
                 cmdPath = "",
-                odex = odex,
-                vdex = vdex,
-                art = art,
+                baseApk = baseEntry,
+                splitApks = splitEntries,
                 armCode = armCode.ifBlank { "arm64" },
                 cpuCode = cpuCode.ifBlank { "generic" }
             )
         }
+    }
+
+    private fun buildApkEntries(
+        apkPaths: List<String>,
+        cmdPath: String,
+        armCode: String
+    ): List<ApkPaths> {
+        val archDir = if (armCode == "two") "arm64" else armCode
+        return apkPaths.map { apkPath ->
+            val apkName = apkPath.substringAfterLast("/")
+            val entryName = apkName.removeSuffix(".apk")
+            ApkPaths(
+                dex = apkPath,
+                path = apkPath.substringBeforeLast("/"),
+                odex = "$cmdPath/$archDir/$entryName.odex",
+                vdex = "$cmdPath/$archDir/$entryName.vdex",
+                art = "$cmdPath/$archDir/$entryName.art"
+            )
+        }
+    }
+
+    private suspend fun resolveSystemApkEntry(
+        apkPath: String,
+        requireExisting: Boolean,
+        log: (LogType, String) -> Unit
+    ): ApkPaths? {
+        val apkName = apkPath.substringAfterLast("/")
+        val baseDirName = apkPath.substringBeforeLast("/").substringAfterLast("/")
+        val preferredDex = commandRunner.run(
+            "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$apkName@classes.dex\""
+        ).stdout
+        val preferredVdex = commandRunner.run(
+            "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$apkName@classes.vdex\""
+        ).stdout
+        if (preferredDex.size > 1 || preferredVdex.size > 1) {
+            log(
+                LogType.Info,
+                "dalvik-cache 匹配到多个候选，dex=${preferredDex.joinToString()}, vdex=${preferredVdex.joinToString()}"
+            )
+        }
+        var odex = preferredDex.firstOrNull().orEmpty()
+        var vdex = preferredVdex.firstOrNull().orEmpty()
+        if (odex.isBlank() && vdex.isBlank()) {
+            odex = commandRunner.run(
+                "find /data/dalvik-cache/ -type f -name \"*@$apkName@classes.dex\""
+            ).stdout.firstOrNull().orEmpty()
+            vdex = commandRunner.run(
+                "find /data/dalvik-cache/ -type f -name \"*@$apkName@classes.vdex\""
+            ).stdout.firstOrNull().orEmpty()
+        }
+        if (odex.isBlank() && vdex.isBlank()) {
+            val sysOdexName = apkName.replace(".apk", ".odex")
+            val candidate64 = "${apkPath.substringBeforeLast("/")}/oat/arm64/$sysOdexName"
+            val candidate32 = "${apkPath.substringBeforeLast("/")}/oat/arm/$sysOdexName"
+            if (fileExists(candidate64)) {
+                odex = candidate64
+                vdex = candidate64.replace(".odex", ".vdex")
+            } else if (fileExists(candidate32)) {
+                odex = candidate32
+                vdex = candidate32.replace(".odex", ".vdex")
+            }
+        }
+        if (odex.isBlank() && vdex.isBlank()) {
+            if (requireExisting) {
+                log(LogType.Error, "系统软件 odex/vdex 未找到")
+                return null
+            }
+            val cachePrefix = apkPath.trimStart('/').replace("/", "@")
+            odex = "/data/dalvik-cache/arm64/$cachePrefix@classes.dex"
+            vdex = "/data/dalvik-cache/arm64/$cachePrefix@classes.vdex"
+        }
+        val art = when {
+            odex.contains("classes.dex") -> odex.replace("classes.dex", "classes.art")
+            odex.endsWith(".odex") -> odex.replace(".odex", ".art")
+            vdex.contains("classes.vdex") -> vdex.replace("classes.vdex", "classes.art")
+            vdex.endsWith(".vdex") -> vdex.replace(".vdex", ".art")
+            else -> ""
+        }
+        return ApkPaths(
+            dex = apkPath,
+            path = apkPath.substringBeforeLast("/"),
+            odex = odex,
+            vdex = vdex,
+            art = art
+        )
     }
 
     private suspend fun resolveEnvironment(
@@ -583,7 +634,9 @@ class Dex2OatExecutor(
             log(LogType.Info, "已暂时禁用 dex2oat 产物删除")
             return
         }
-        val targets = mutableListOf(packagePaths.art, packagePaths.odex, packagePaths.vdex)
+        val targets = (listOf(packagePaths.baseApk) + packagePaths.splitApks)
+            .flatMap { listOf(it.art, it.odex, it.vdex) }
+            .toMutableList()
         if (packagePaths.armCode == "two") {
             targets += targets.map { it.replace("/arm64/", "/arm/") }
         }
@@ -594,7 +647,9 @@ class Dex2OatExecutor(
     }
 
     private suspend fun setOutputPermissions(packagePaths: PackagePaths, log: (LogType, String) -> Unit) {
-        val targets = mutableListOf(packagePaths.art, packagePaths.odex, packagePaths.vdex)
+        val targets = (listOf(packagePaths.baseApk) + packagePaths.splitApks)
+            .flatMap { listOf(it.art, it.odex, it.vdex) }
+            .toMutableList()
         if (packagePaths.armCode == "two") {
             targets += targets.map { it.replace("/arm64/", "/arm/") }
         }
@@ -674,6 +729,7 @@ class Dex2OatExecutor(
     private fun buildDex2OatCommands(
         dex2oatCommand: String,
         packageName: String,
+        apkPaths: ApkPaths,
         packagePaths: PackagePaths,
         env: CompileEnvironment,
         options: CompileOptions
@@ -682,13 +738,13 @@ class Dex2OatExecutor(
         val armVariants = if (packagePaths.armCode == "two") listOf("arm", "arm64") else listOf(packagePaths.armCode)
         return armVariants.map { armCode ->
             val cpuCode = if (armCode == "arm64") getPropSync("dalvik.vm.isa.arm64.variant") else getPropSync("dalvik.vm.isa.arm.variant")
-            val odex = packagePaths.odex.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
-            val art = packagePaths.art.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
-            val vdex = packagePaths.vdex.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
+            val odex = apkPaths.odex.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
+            val art = apkPaths.art.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
+            val vdex = apkPaths.vdex.replace("/arm64/", "/$armCode/").replace("/arm/", "/$armCode/")
             listOf(
                 dex2oatCommand,
-                "--dex-file=\"${packagePaths.dex}\"",
-                "--dex-location=\"${packagePaths.dex}\"",
+                "--dex-file=\"${apkPaths.dex}\"",
+                "--dex-location=\"${apkPaths.dex}\"",
                 "--oat-file=\"$odex\"",
                 "--oat-location=\"$odex\"",
                 "--app-image-file=\"$art\"",
@@ -707,7 +763,7 @@ class Dex2OatExecutor(
                 "--very-large-app-threshold=2147483647",
                 "--compact-dex-level=fast",
                 "--runtime-arg -Xtarget-sdk-version:${env.targetSdkVersion}",
-                "--classpath-dir=\"${packagePaths.path}\"",
+                "--classpath-dir=\"${apkPaths.path}\"",
                 "--class-loader-context=\"${env.classLoaderContext}\"",
                 addOptions
             ).filter { it.isNotBlank() }.joinToString(" ")
@@ -743,15 +799,20 @@ class Dex2OatExecutor(
         }
     }
 
+    private data class ApkPaths(
+        val dex: String,
+        val path: String,
+        val odex: String,
+        val vdex: String,
+        val art: String
+    )
+
     private data class PackagePaths(
         val isSystemPackage: Boolean,
         val isAab: Boolean,
-        val dex: String,
-        val path: String,
+        val baseApk: ApkPaths,
+        val splitApks: List<ApkPaths>,
         val cmdPath: String,
-        val odex: String,
-        val vdex: String,
-        val art: String,
         val armCode: String,
         val cpuCode: String
     )
