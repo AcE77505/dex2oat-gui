@@ -40,7 +40,7 @@ class Dex2OatExecutor(
             logBuffer.appendLine(message)
         }
         log(LogType.Info, "开始执行: $packageName")
-        log(LogType.Info, "编译类型: ${options.compileFilter}")
+        log(LogType.Info, "编译类型: ${buildCompileFilterSummary(options)}")
         log(LogType.Info, "基础选项: ${buildBasicOptionSummary(options)}")
         val packageLabel = packageRepository.loadPackages()
             .firstOrNull { it.packageName == packageName }
@@ -59,7 +59,7 @@ class Dex2OatExecutor(
         }
 
         if (options.doCleanProfile) {
-            if (!cleanProfile(packageName, options.compileFilter, log)) {
+            if (!cleanProfile(packageName, log)) {
                 writeLog(logFile, logBuffer, outputLocation)
                 return@withContext ExecutionResult(false, "首次 profile 编译失败")
             }
@@ -71,7 +71,7 @@ class Dex2OatExecutor(
             }
         }
         if (options.doProfile) {
-            if (!profileCompile(packageName, options.compileFilter, log)) {
+            if (!profileCompile(packageName, log)) {
                 writeLog(logFile, logBuffer, outputLocation)
                 return@withContext ExecutionResult(false, "profile 编译失败")
             }
@@ -131,15 +131,29 @@ class Dex2OatExecutor(
         return if (selected.isEmpty()) "无" else selected.joinToString("、")
     }
 
+    private fun buildCompileFilterSummary(options: CompileOptions): String {
+        val includesFullCompile = options.doCompile
+        val includesOtherCompile = options.doCleanProfile || options.doProfile || options.doExtCompile || options.forceCompile
+        return when {
+            includesFullCompile && includesOtherCompile -> "完全编译=${resolveFullCompileFilter()}，其余=${resolveNonFullCompileFilter()}"
+            includesFullCompile -> resolveFullCompileFilter()
+            else -> resolveNonFullCompileFilter()
+        }
+    }
+
+    private fun resolveFullCompileFilter(): String = "speed"
+
+    private fun resolveNonFullCompileFilter(): String = "speed-profile"
+
     private suspend fun cleanProfile(
         packageName: String,
-        compileFilter: String,
         log: (LogType, String) -> Unit
     ): Boolean {
         val api = getProp("ro.build.version.sdk").toIntOrNull() ?: return false
         if (!checkProfileFiles(packageName, log)) {
             return true
         }
+        val compileFilter = resolveNonFullCompileFilter()
         if (api == 34) {
             log(LogType.Command, "cmd package art clear-app-profiles $packageName")
             commandRunner.run("cmd package art clear-app-profiles $packageName")
@@ -154,12 +168,12 @@ class Dex2OatExecutor(
 
     private suspend fun profileCompile(
         packageName: String,
-        compileFilter: String,
         log: (LogType, String) -> Unit
     ): Boolean {
         if (!checkProfileFiles(packageName, log)) {
             return true
         }
+        val compileFilter = resolveNonFullCompileFilter()
         log(LogType.Command, "am force-stop $packageName")
         commandRunner.run("am force-stop $packageName")
         log(LogType.Command, "cmd package compile -m ${compileFilter}-profile -f $packageName")
@@ -235,12 +249,12 @@ class Dex2OatExecutor(
             return ExecutionResult(false, "dump 信息不完整")
         }
         val dex2OatCommand = resolveDex2OatCommand(env.api, log) ?: return ExecutionResult(false, "dex2oat 未找到")
-        var compileFilter = options.compileFilter
+        var compileFilter = resolveFullCompileFilter()
         if (options.forceCompile) {
             if (!prepareForceProfile(packageName, log)) {
                 return ExecutionResult(false, "强制 profile 失败")
             }
-            compileFilter = "speed-profile"
+            compileFilter = resolveNonFullCompileFilter()
         }
         val compileTargets = listOf(packagePaths.baseApk) + packagePaths.splitApks
         removeOutputFiles(packagePaths, log)
@@ -343,7 +357,7 @@ class Dex2OatExecutor(
         options: CompileOptions,
         log: (LogType, String) -> Unit
     ): ExecutionResult {
-        val filter = options.extCompileFilter.ifBlank { options.compileFilter }
+        val filter = resolveNonFullCompileFilter()
         val target = options.extPackageName.ifBlank { "" }
         if (target.isBlank()) {
             return ExecutionResult(false, "自定义编译包名为空")
@@ -734,7 +748,12 @@ class Dex2OatExecutor(
         env: CompileEnvironment,
         options: CompileOptions
     ): List<String> {
-        val addOptions = buildAddOptions(env, packagePaths.isSystemPackage, options.extraDex2OatOptions)
+        val addOptions = buildAddOptions(
+            env,
+            packagePaths.isSystemPackage,
+            options.includeBootClasspath,
+            options.extraDex2OatOptions
+        )
         val armVariants = if (packagePaths.armCode == "two") listOf("arm", "arm64") else listOf(packagePaths.armCode)
         return armVariants.map { armCode ->
             val cpuCode = if (armCode == "arm64") getPropSync("dalvik.vm.isa.arm64.variant") else getPropSync("dalvik.vm.isa.arm.variant")
@@ -770,25 +789,65 @@ class Dex2OatExecutor(
         }
     }
 
-    private fun buildAddOptions(env: CompileEnvironment, isSystemPackage: Boolean, extraOptions: String): String {
-        val apiOptions = when (env.api) {
-            28 -> "--runtime-arg -Xhidden-api-checks"
-            29 -> "--resolve-startup-const-strings=${env.dvdrss} --runtime-arg -Xbootclasspath:${env.dex2oatBootClasspath} --runtime-arg -Xhidden-api-policy:enabled"
-            30 -> "--resolve-startup-const-strings=${env.dvdrss} --updatable-bcp-packages-file=${env.updatableBcp} --runtime-arg -Xbootclasspath:${env.dex2oatBootClasspath} --runtime-arg -Xhidden-api-policy:enabled"
-            31 -> "--resolve-startup-const-strings=${env.dvdrss} --updatable-bcp-packages-file=${env.updatableBcp} --runtime-arg -Xbootclasspath:${env.bootClasspath} --runtime-arg -Xhidden-api-policy:enabled"
-            32 -> "--resolve-startup-const-strings=${env.dvdrss} --updatable-bcp-packages-file=${env.updatableBcp} --runtime-arg -Xbootclasspath:${env.bootClasspath} --runtime-arg -Xhidden-api-policy:enabled --runtime-arg -Xdeny-art-apex-data-files"
-            33 -> "--resolve-startup-const-strings=${env.dvdrss} --runtime-arg -Xbootclasspath:${env.bootClasspath} --runtime-arg -Xhidden-api-policy:enabled --runtime-arg -Xdeny-art-apex-data-files"
-            34 -> "--resolve-startup-const-strings=${env.dvdrss} --runtime-arg -Xhidden-api-policy:enabled --comments=${env.comments}"
-            else -> ""
+    private fun buildAddOptions(
+        env: CompileEnvironment,
+        isSystemPackage: Boolean,
+        includeBootClasspath: Boolean,
+        extraOptions: String
+    ): String {
+        val bootClasspathOption: (String) -> String? = { classpath ->
+            if (includeBootClasspath) "--runtime-arg -Xbootclasspath:$classpath" else null
         }
+        val apiOptions = when (env.api) {
+            28 -> listOf("--runtime-arg -Xhidden-api-checks")
+            29 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                bootClasspathOption(env.dex2oatBootClasspath),
+                "--runtime-arg -Xhidden-api-policy:enabled"
+            )
+            30 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                "--updatable-bcp-packages-file=${env.updatableBcp}",
+                bootClasspathOption(env.dex2oatBootClasspath),
+                "--runtime-arg -Xhidden-api-policy:enabled"
+            )
+            31 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                "--updatable-bcp-packages-file=${env.updatableBcp}",
+                bootClasspathOption(env.bootClasspath),
+                "--runtime-arg -Xhidden-api-policy:enabled"
+            )
+            32 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                "--updatable-bcp-packages-file=${env.updatableBcp}",
+                bootClasspathOption(env.bootClasspath),
+                "--runtime-arg -Xhidden-api-policy:enabled",
+                "--runtime-arg -Xdeny-art-apex-data-files"
+            )
+            33 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                bootClasspathOption(env.bootClasspath),
+                "--runtime-arg -Xhidden-api-policy:enabled",
+                "--runtime-arg -Xdeny-art-apex-data-files"
+            )
+            34 -> listOf(
+                "--resolve-startup-const-strings=${env.dvdrss}",
+                "--runtime-arg -Xhidden-api-policy:enabled",
+                "--comments=${env.comments}"
+            )
+            else -> emptyList()
+        }.filterNotNull()
         val reason = if (isSystemPackage) "--compilation-reason=bg-dexopt" else "--compilation-reason=install"
         val sanitized = if (isSystemPackage) {
-            apiOptions.replace(" --runtime-arg -Xhidden-api-policy:enabled", "")
-                .replace(" --runtime-arg -Xhidden-api-checks", "")
+            apiOptions.filterNot { option ->
+                option.contains("-Xhidden-api-policy") || option.contains("-Xhidden-api-checks")
+            }
         } else {
             apiOptions
         }
-        return listOf(sanitized, reason, extraOptions.trim()).filter { it.isNotBlank() }.joinToString(" ")
+        return (sanitized + listOf(reason, extraOptions.trim()))
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
     }
 
     private fun getPropSync(name: String): String {

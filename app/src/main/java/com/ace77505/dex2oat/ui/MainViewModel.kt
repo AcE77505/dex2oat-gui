@@ -58,6 +58,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val rootAvailable = rootRunner.isRootAvailable()
             _uiState.update { it.copy(rootAvailable = rootAvailable) }
         }
+        viewModelScope.launch {
+            settingsRepository.includeBootClasspath.collect { enabled ->
+                _uiState.update {
+                    it.copy(compileOptions = it.compileOptions.copy(includeBootClasspath = enabled))
+                }
+            }
+        }
     }
 
     fun selectPackage(item: PackageItem) {
@@ -65,7 +72,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateCompileOptions(options: CompileOptions) {
+        val previous = _uiState.value.compileOptions
         _uiState.update { it.copy(compileOptions = options) }
+        if (previous.includeBootClasspath != options.includeBootClasspath) {
+            viewModelScope.launch {
+                settingsRepository.setIncludeBootClasspath(options.includeBootClasspath)
+            }
+        }
     }
 
     fun setOutputLocation(location: OutputLocation) {

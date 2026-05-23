@@ -2,6 +2,7 @@ package com.ace77505.dex2oat.data
 
 import android.content.Context
 import android.net.Uri
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -15,6 +16,7 @@ class SettingsRepository(private val context: Context) {
     private val locationKey = stringPreferencesKey("output_location")
     private val safUriKey = stringPreferencesKey("output_saf_uri")
     private val lastPackageKey = stringPreferencesKey("last_package_name")
+    private val includeBootClasspathKey = booleanPreferencesKey("include_boot_classpath")
 
     val outputLocation: Flow<OutputLocation> = context.dataStore.data.map { prefs ->
         val location = prefs[locationKey] ?: OutputLocation.LOCATION_APP
@@ -32,6 +34,10 @@ class SettingsRepository(private val context: Context) {
 
     val lastPackageName: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[lastPackageKey]
+    }
+
+    val includeBootClasspath: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[includeBootClasspathKey] ?: true
     }
 
     suspend fun setOutputLocation(location: OutputLocation) {
@@ -58,6 +64,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setLastPackageName(packageName: String) {
         context.dataStore.edit { prefs ->
             prefs[lastPackageKey] = packageName
+        }
+    }
+
+    suspend fun setIncludeBootClasspath(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[includeBootClasspathKey] = enabled
         }
     }
 }

@@ -2,6 +2,7 @@ package com.ace77505.dex2oat.model
 
 data class CompileOptions(
     val compileFilter: String = "speed",
+    val includeBootClasspath: Boolean = true,
     val extraDex2OatOptions: String = "",
     val cpuCount: Int? = null,
     val cpuAffinity: String? = null,

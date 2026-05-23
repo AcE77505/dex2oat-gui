@@ -18,10 +18,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -80,10 +76,6 @@ fun MainScreen(
             packages = uiState.packages,
             selectedPackage = uiState.selectedPackage,
             onPackageSelected = onPackageSelected
-        )
-        CompileFilterPicker(
-            options = uiState.compileOptions,
-            onOptionsChange = onOptionsChange
         )
         OptionSection(
             options = uiState.compileOptions,
@@ -164,41 +156,6 @@ private fun PackagePicker(
         }
         if (tags.isNotEmpty()) {
             Text(text = tags.joinToString(" / "))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CompileFilterPicker(
-    options: CompileOptions,
-    onOptionsChange: (CompileOptions) -> Unit
-) {
-    val filters = listOf(
-        "speed-profile", "speed"
-    )
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(
-            value = options.compileFilter,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.compile_filter)) },
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth(),
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            filters.forEach { filter ->
-                DropdownMenuItem(
-                    text = { Text(filter) },
-                    onClick = {
-                        onOptionsChange(options.copy(compileFilter = filter))
-                        expanded = false
-                    }
-                )
-            }
         }
     }
 }
@@ -291,6 +248,11 @@ private fun AdvancedOptionsSection(
     onOptionsChange: (CompileOptions) -> Unit
 ) {
     SectionTitle(stringResource(R.string.advanced_options))
+    CheckboxOption(
+        label = stringResource(R.string.option_include_bootclasspath),
+        checked = options.includeBootClasspath,
+        onCheckedChange = { onOptionsChange(options.copy(includeBootClasspath = it)) }
+    )
     OutlinedTextField(
         value = options.extraDex2OatOptions,
         onValueChange = { onOptionsChange(options.copy(extraDex2OatOptions = it)) },
@@ -314,12 +276,6 @@ private fun AdvancedOptionsSection(
         modifier = Modifier.fillMaxWidth()
     )
     if (options.doExtCompile) {
-        OutlinedTextField(
-            value = options.extCompileFilter,
-            onValueChange = { onOptionsChange(options.copy(extCompileFilter = it)) },
-            label = { Text(stringResource(R.string.ext_compile_filter)) },
-            modifier = Modifier.fillMaxWidth()
-        )
         OutlinedTextField(
             value = options.extPackageName,
             onValueChange = { onOptionsChange(options.copy(extPackageName = it)) },

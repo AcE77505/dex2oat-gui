@@ -7,7 +7,6 @@
     <string name="system_app">系统软件</string>
     <string name="updated_system_app">系统更新</string>
     <string name="aab_app">AAB</string>
-    <string name="compile_filter">编译类型</string>
     <string name="basic_options">基础选项</string>
     <string name="option_clean_profile">首次 profile 编译</string>
     <string name="option_profile">再次 profile 编译</string>
@@ -22,10 +21,10 @@
     <string name="output_saf">SAF 目录</string>
     <string name="choose_directory">选择目录</string>
     <string name="advanced_options">高级选项</string>
+    <string name="option_include_bootclasspath">附加 -Xbootclasspath</string>
     <string name="extra_options">dex2oat 额外参数</string>
     <string name="cpu_count">CPU 核心数</string>
     <string name="cpu_affinity">CPU 亲和度</string>
-    <string name="ext_compile_filter">自定义编译类型</string>
     <string name="ext_package_name">自定义包名</string>
     <string name="ext_clear_profile">清除热点列表</string>
     <string name="logs">日志</string>

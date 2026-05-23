@@ -7,7 +7,6 @@
     <string name="system_app">System app</string>
     <string name="updated_system_app">Updated system app</string>
     <string name="aab_app">AAB</string>
-    <string name="compile_filter">Compile filter</string>
     <string name="basic_options">Basic options</string>
     <string name="option_clean_profile">First profile compile</string>
     <string name="option_profile">Profile compile</string>
@@ -22,10 +21,10 @@
     <string name="output_saf">SAF directory</string>
     <string name="choose_directory">Choose directory</string>
     <string name="advanced_options">Advanced options</string>
+    <string name="option_include_bootclasspath">Include -Xbootclasspath</string>
     <string name="extra_options">Extra dex2oat options</string>
     <string name="cpu_count">CPU cores</string>
     <string name="cpu_affinity">CPU affinity</string>
-    <string name="ext_compile_filter">Custom compile filter</string>
     <string name="ext_package_name">Custom package</string>
     <string name="ext_clear_profile">Clear profile first</string>
     <string name="logs">Logs</string>
