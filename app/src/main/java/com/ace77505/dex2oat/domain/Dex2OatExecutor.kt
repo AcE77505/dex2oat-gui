@@ -381,10 +381,14 @@ class Dex2OatExecutor(
             return null
         }
         val paths = pmResult.stdout.map { it.removePrefix("package:") }
+        log(LogType.Info, "pm path 结果: ${paths.joinToString(separator = ", ")}")
         val baseApkPaths = paths.filter { it.endsWith("/base.apk") }
         val isAab = paths.size > 1
         if (isAab && baseApkPaths.size != 1) {
-            log(LogType.Error, "AAB 软件包含多个 base.apk，暂不支持")
+            log(
+                LogType.Error,
+                "AAB 软件包含多个 base.apk，数量=${baseApkPaths.size}，路径=${baseApkPaths.joinToString(separator = ", ")}"
+            )
             return null
         }
         val baseApk = baseApkPaths.firstOrNull() ?: paths.first()
