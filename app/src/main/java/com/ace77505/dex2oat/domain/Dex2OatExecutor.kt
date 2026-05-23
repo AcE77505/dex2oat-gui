@@ -40,6 +40,8 @@ class Dex2OatExecutor(
             logBuffer.appendLine(message)
         }
         log(LogType.Info, "开始执行: $packageName")
+        log(LogType.Info, "编译类型: ${options.compileFilter}")
+        log(LogType.Info, "基础选项: ${buildBasicOptionSummary(options)}")
         val packageLabel = packageRepository.loadPackages()
             .firstOrNull { it.packageName == packageName }
             ?.label
@@ -113,6 +115,20 @@ class Dex2OatExecutor(
     ) {
         logFile.writeText(logBuffer.toString())
         outputManager.copyToLocation(logFile, outputLocation, logFile.name)
+    }
+
+    private fun buildBasicOptionSummary(options: CompileOptions): String {
+        val selected = buildList {
+            if (options.doCleanProfile) add("首次 profile 编译")
+            if (options.doProfile) add("再次 profile 编译")
+            if (options.autoProfile) add("自动生成热点")
+            if (options.autoStart) add("自动启动应用")
+            if (options.doCompile) add("完全编译")
+            if (options.forceCompile) add("强制 profile 后再编译")
+            if (options.doDumpOnly) add("仅获取 dump 信息")
+            if (options.doExtCompile) add("自定义单次编译")
+        }
+        return if (selected.isEmpty()) "无" else selected.joinToString("、")
     }
 
     private suspend fun cleanProfile(

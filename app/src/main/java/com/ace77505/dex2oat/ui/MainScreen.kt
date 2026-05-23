@@ -175,8 +175,7 @@ private fun CompileFilterPicker(
     onOptionsChange: (CompileOptions) -> Unit
 ) {
     val filters = listOf(
-        "assume-verified", "extract", "verify", "quicken", "space-profile",
-        "space", "speed", "speed-profile", "everything", "everything-profile"
+        "speed-profile", "speed"
     )
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
