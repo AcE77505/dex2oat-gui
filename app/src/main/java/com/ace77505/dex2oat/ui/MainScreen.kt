@@ -37,12 +37,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.ace77505.dex2oat.R
 import com.ace77505.dex2oat.model.CompileOptions
 import com.ace77505.dex2oat.model.LogEntry
+import com.ace77505.dex2oat.model.LogType
 import com.ace77505.dex2oat.model.OutputLocation
 import com.ace77505.dex2oat.model.PackageItem
+import com.ace77505.dex2oat.ui.theme.Dex2OatTheme
 
 @Composable
 fun MainScreen(
@@ -322,5 +325,35 @@ private fun CheckboxOption(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = checked, onCheckedChange = onCheckedChange)
         Text(text = label)
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MainScreenPreview() {
+    Dex2OatTheme {
+        MainScreen(
+            uiState = MainUiState(
+                packages = listOf(
+                    PackageItem("com.example.app", "Example App", isSystem = false, isUpdatedSystem = false, isAab = false),
+                    PackageItem("com.android.settings", "Settings", isSystem = true, isUpdatedSystem = false, isAab = false)
+                ),
+                selectedPackage = PackageItem("com.example.app", "Example App", isSystem = false, isUpdatedSystem = false, isAab = false),
+                compileOptions = CompileOptions(),
+                outputLocation = OutputLocation.AppPrivate,
+                rootAvailable = true,
+                logs = listOf(
+                    LogEntry("Started", LogType.Info),
+                    LogEntry("ls -l", LogType.Command)
+                ),
+                isRunning = false
+            ),
+            onPackageSelected = {},
+            onOptionsChange = {},
+            onOutputLocationChange = {},
+            onSafUriSelected = {},
+            onRun = {},
+            contentPadding = PaddingValues(0.dp)
+        )
     }
 }
