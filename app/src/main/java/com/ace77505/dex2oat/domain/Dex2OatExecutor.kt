@@ -444,12 +444,29 @@ class Dex2OatExecutor(
             )
         } else {
             val sysApkName = baseApk.substringAfterLast("/")
-            var odex = commandRunner.run(
-                "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.dex\""
-            ).stdout.firstOrNull().orEmpty()
-            var vdex = commandRunner.run(
-                "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.vdex\""
-            ).stdout.firstOrNull().orEmpty()
+            val baseDirName = baseApk.substringBeforeLast("/").substringAfterLast("/")
+            val preferredDex = commandRunner.run(
+                "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$sysApkName@classes.dex\""
+            ).stdout
+            val preferredVdex = commandRunner.run(
+                "find /data/dalvik-cache/ -type f -name \"*@$baseDirName@$sysApkName@classes.vdex\""
+            ).stdout
+            if (preferredDex.size > 1 || preferredVdex.size > 1) {
+                log(
+                    LogType.Info,
+                    "dalvik-cache 匹配到多个候选，dex=${preferredDex.joinToString()}, vdex=${preferredVdex.joinToString()}"
+                )
+            }
+            var odex = preferredDex.firstOrNull().orEmpty()
+            var vdex = preferredVdex.firstOrNull().orEmpty()
+            if (odex.isBlank() && vdex.isBlank()) {
+                odex = commandRunner.run(
+                    "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.dex\""
+                ).stdout.firstOrNull().orEmpty()
+                vdex = commandRunner.run(
+                    "find /data/dalvik-cache/ -type f -name \"*@$sysApkName@classes.vdex\""
+                ).stdout.firstOrNull().orEmpty()
+            }
             if (odex.isBlank() && vdex.isBlank()) {
                 val sysOdexName = sysApkName.replace(".apk", ".odex")
                 val candidate64 = "${baseApk.substringBeforeLast("/")}/oat/arm64/$sysOdexName"
@@ -561,6 +578,11 @@ class Dex2OatExecutor(
     }
 
     private suspend fun removeOutputFiles(packagePaths: PackagePaths, log: (LogType, String) -> Unit) {
+        val deleteEnabled = false
+        if (!deleteEnabled) {
+            log(LogType.Info, "已暂时禁用 dex2oat 产物删除")
+            return
+        }
         val targets = mutableListOf(packagePaths.art, packagePaths.odex, packagePaths.vdex)
         if (packagePaths.armCode == "two") {
             targets += targets.map { it.replace("/arm64/", "/arm/") }
