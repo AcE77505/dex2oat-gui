@@ -23,6 +23,10 @@ import kotlinx.coroutines.launch
 data class MainUiState(
     val packages: List<PackageItem> = emptyList(),
     val selectedPackage: PackageItem? = null,
+    val appFilter: AppFilter = AppFilter.All,
+    val appSort: AppSort = AppSort.UpdateTime,
+    val appSortReversed: Boolean = false,
+    val appSearchQuery: String = "",
     val compileOptions: CompileOptions = CompileOptions(),
     val outputLocation: OutputLocation = OutputLocation.AppPrivate,
     val rootAvailable: Boolean? = null,
@@ -30,6 +34,17 @@ data class MainUiState(
     val isRunning: Boolean = false,
     val lastMessageRes: Int? = null
 )
+
+enum class AppFilter {
+    All,
+    User,
+    System
+}
+
+enum class AppSort {
+    UpdateTime,
+    ApkSize
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepository = SettingsRepository(application)
@@ -69,6 +84,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectPackage(item: PackageItem) {
         _uiState.update { it.copy(selectedPackage = item) }
+    }
+
+    fun setAppFilter(filter: AppFilter) {
+        _uiState.update { it.copy(appFilter = filter) }
+    }
+
+    fun setAppSort(sort: AppSort) {
+        _uiState.update { it.copy(appSort = sort) }
+    }
+
+    fun setAppSortReversed(reversed: Boolean) {
+        _uiState.update { it.copy(appSortReversed = reversed) }
+    }
+
+    fun setAppSearchQuery(query: String) {
+        _uiState.update { it.copy(appSearchQuery = query) }
     }
 
     fun updateCompileOptions(options: CompileOptions) {
