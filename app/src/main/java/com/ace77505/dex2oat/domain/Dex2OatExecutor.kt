@@ -382,9 +382,23 @@ class Dex2OatExecutor(
         }
         val paths = pmResult.stdout.map { it.removePrefix("package:") }
         log(LogType.Info, "pm path 结果: ${paths.joinToString(separator = ", ")}")
-        val baseApkPaths = paths.filter { it.endsWith("/base.apk") }
+        val baseApkPaths = paths.filter { path ->
+            val name = path.substringAfterLast("/")
+            name == "base.apk" || (name.startsWith("base-") && name.endsWith(".apk"))
+        }
         val isAab = paths.size > 1
-        if (isAab && baseApkPaths.size != 1) {
+        log(
+            LogType.Info,
+            "AAB 判定=${isAab}，base.apk 候选数量=${baseApkPaths.size}，候选=${baseApkPaths.joinToString(separator = ", ")}"
+        )
+        if (isAab && baseApkPaths.isEmpty()) {
+            log(
+                LogType.Error,
+                "AAB 未找到 base.apk 候选，文件列表=${paths.joinToString(separator = ", ")}"
+            )
+            return null
+        }
+        if (isAab && baseApkPaths.size > 1) {
             log(
                 LogType.Error,
                 "AAB 软件包含多个 base.apk，数量=${baseApkPaths.size}，路径=${baseApkPaths.joinToString(separator = ", ")}"

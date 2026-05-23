@@ -14,6 +14,7 @@ private val Context.dataStore by preferencesDataStore("settings")
 class SettingsRepository(private val context: Context) {
     private val locationKey = stringPreferencesKey("output_location")
     private val safUriKey = stringPreferencesKey("output_saf_uri")
+    private val lastPackageKey = stringPreferencesKey("last_package_name")
 
     val outputLocation: Flow<OutputLocation> = context.dataStore.data.map { prefs ->
         val location = prefs[locationKey] ?: OutputLocation.LOCATION_APP
@@ -27,6 +28,10 @@ class SettingsRepository(private val context: Context) {
         } else {
             OutputLocation.AppPrivate
         }
+    }
+
+    val lastPackageName: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[lastPackageKey]
     }
 
     suspend fun setOutputLocation(location: OutputLocation) {
@@ -47,6 +52,12 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[locationKey] = OutputLocation.LOCATION_SAF
             prefs[safUriKey] = uri.toString()
+        }
+    }
+
+    suspend fun setLastPackageName(packageName: String) {
+        context.dataStore.edit { prefs ->
+            prefs[lastPackageKey] = packageName
         }
     }
 }

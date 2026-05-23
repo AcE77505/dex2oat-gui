@@ -16,6 +16,7 @@ import com.ace77505.dex2oat.root.RootCommandRunner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -43,7 +44,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             val packages = packageRepository.loadPackages()
-            _uiState.update { it.copy(packages = packages, selectedPackage = packages.firstOrNull()) }
+            val lastPackageName = settingsRepository.lastPackageName.first()
+            val selectedPackage = packages.firstOrNull { it.packageName == lastPackageName }
+                ?: packages.firstOrNull()
+            _uiState.update { it.copy(packages = packages, selectedPackage = selectedPackage) }
         }
         viewModelScope.launch {
             settingsRepository.outputLocation.collect { location ->
@@ -89,6 +93,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            settingsRepository.setLastPackageName(packageName)
             _uiState.update { it.copy(isRunning = true, logs = emptyList(), lastMessageRes = null) }
             val result = executor.execute(
                 packageName = packageName,
